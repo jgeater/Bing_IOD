@@ -33,6 +33,26 @@ public:
     };
 
     static void Log(Level level, const std::string& message) {
+        // Rotate if > 500 KB
+        constexpr std::uintmax_t kMaxSize = 500 * 1024;
+        const std::string logName = "bing_iod.log";
+        const std::string bakName = "bing_iod.log.bak";
+        try {
+            if (fs::exists(logName)) {
+                auto size = fs::file_size(logName);
+                if (size > kMaxSize) {
+                    // Remove old backup if present, then rename current
+                    if (fs::exists(bakName)) {
+                        fs::remove(bakName);
+                    }
+                    fs::rename(logName, bakName);
+                }
+            }
+        }
+        catch (...) {
+            // ignore rotation errors; continue logging
+        }
+
         auto now = std::chrono::system_clock::now();
         auto time = std::chrono::system_clock::to_time_t(now);
         std::tm tm;
@@ -51,7 +71,7 @@ public:
         std::string logMessage = "[" + oss.str() + "] [" + levelStr + "] " + message;
         std::cout << logMessage << std::endl;
 
-        std::ofstream logFile("bing_iod.log", std::ios::app);
+        std::ofstream logFile(logName, std::ios::app);
         if (logFile.is_open()) {
             logFile << logMessage << std::endl;
             logFile.close();
