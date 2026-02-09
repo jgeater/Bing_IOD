@@ -33,7 +33,7 @@ public:
     };
 
     static void Log(Level level, const std::string& message) {
-        // Rotate if > 500 KB
+        // Rotate log if size exceeds 500 KB (rename to .bak and start fresh).
         constexpr std::uintmax_t kMaxSize = 500 * 1024;
         const std::string logName = "bing_iod.log";
         const std::string bakName = "bing_iod.log.bak";
@@ -41,7 +41,6 @@ public:
             if (fs::exists(logName)) {
                 auto size = fs::file_size(logName);
                 if (size > kMaxSize) {
-                    // Remove old backup if present, then rename current
                     if (fs::exists(bakName)) {
                         fs::remove(bakName);
                     }
@@ -50,9 +49,10 @@ public:
             }
         }
         catch (...) {
-            // ignore rotation errors; continue logging
+            // Ignore rotation errors; keep logging to console/file.
         }
 
+        // Timestamp and level formatting.
         auto now = std::chrono::system_clock::now();
         auto time = std::chrono::system_clock::to_time_t(now);
         std::tm tm;
@@ -68,6 +68,7 @@ public:
             case Level::ERROR: levelStr = "ERROR"; break;
         }
 
+        // Emit to console and append to log file.
         std::string logMessage = "[" + oss.str() + "] [" + levelStr + "] " + message;
         std::cout << logMessage << std::endl;
 
@@ -84,6 +85,7 @@ private:
     std::wstring picturesPath;
     std::wstring targetFolder;
 
+    // Resolve the user's Pictures folder via known folder API.
     std::wstring GetMyPicturesPath() {
         PWSTR path = nullptr;
         if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Pictures, 0, nullptr, &path))) {
@@ -94,6 +96,7 @@ private:
         return L"";
     }
 
+    // Wide <-> UTF-8 helpers.
     std::string WStringToString(const std::wstring& wstr) {
         if (wstr.empty()) {
             return std::string();
@@ -114,6 +117,7 @@ private:
         return wstr.substr(0, size - 1);
     }
 
+    // HTTP GET via WinHTTP, storing the response bytes in buffer.
     bool DownloadHTTP(const std::wstring& server, const std::wstring& path, std::vector<BYTE>& buffer) {
         HINTERNET hSession = nullptr;
         HINTERNET hConnect = nullptr;
@@ -159,6 +163,7 @@ private:
                 DWORD bytesAvailable = 0;
                 buffer.clear();
 
+                // Read all available data chunks.
                 do {
                     bytesAvailable = 0;
                     if (!WinHttpQueryDataAvailable(hRequest, &bytesAvailable)) {
@@ -179,6 +184,7 @@ private:
                 success = !buffer.empty();
             }
 
+            // Cleanup handles.
             WinHttpCloseHandle(hRequest);
             WinHttpCloseHandle(hConnect);
             WinHttpCloseHandle(hSession);
@@ -199,6 +205,7 @@ private:
         return success;
     }
 
+    // Extract image URL from Bing JSON response (simple string search).
     std::string ExtractImageUrl(const std::string& json) {
         size_t urlPos = json.find("\"url\":\"");
         if (urlPos != std::string::npos) {
@@ -223,6 +230,7 @@ private:
         return "";
     }
 
+    // Replace invalid filename characters.
     std::string SanitizeFilename(const std::string& filename) {
         std::string result = filename;
         const std::string invalid = "<>:\"/\\|?*";
@@ -232,18 +240,19 @@ private:
         return result;
     }
 
+    // Derive a clean filename from Bing image URL.
     std::string ExtractCleanFilenameFromUrl(const std::string& imageUrl, int index) {
-        // Take the last path segment
+        // Take the last path segment.
         size_t lastSlash = imageUrl.find_last_of('/');
         std::string segment = (lastSlash != std::string::npos) ? imageUrl.substr(lastSlash + 1) : imageUrl;
 
-        // Strip Bing thumb prefix "th?id="
+        // Strip Bing thumb prefix "th?id=".
         const std::string thumbPrefix = "th?id=";
         if (segment.rfind(thumbPrefix, 0) == 0 && segment.size() > thumbPrefix.size()) {
             segment = segment.substr(thumbPrefix.size());
         }
 
-        // Drop query/extra params at '?' or '&'
+        // Drop query/extra params at '?' or '&'.
         size_t qm = segment.find('?');
         size_t amp = segment.find('&');
         size_t cut = std::string::npos;
@@ -258,7 +267,7 @@ private:
             segment = segment.substr(0, cut);
         }
 
-        // Strip leading "OHR." if present
+        // Strip leading "OHR." if present.
         const std::string ohrPrefix = "OHR.";
         if (segment.rfind(ohrPrefix, 0) == 0 && segment.size() > ohrPrefix.size()) {
             segment = segment.substr(ohrPrefix.size());
@@ -266,6 +275,7 @@ private:
 
         segment = SanitizeFilename(segment);
 
+        // Fallback name if nothing remains.
         if (segment.empty()) {
             segment = "bing_image_" + std::to_string(index) + ".jpg";
         }
@@ -274,9 +284,11 @@ private:
 
 public:
     BingImageDownloader() {
+        // Resolve Pictures folder and use it directly as target.
         picturesPath = GetMyPicturesPath();
         targetFolder = picturesPath;
 
+        // Ensure target exists.
         try {
             if (!fs::exists(targetFolder)) {
                 fs::create_directories(targetFolder);
@@ -287,6 +299,7 @@ public:
         }
     }
 
+    // Download the latest Bing images (up to numberOfImages).
     bool DownloadImages(int numberOfImages = 8) {
         Logger::Log(Logger::Level::INFO, "Starting Bing Image of the Day download...");
         
@@ -296,11 +309,13 @@ public:
 
         for (int i = 0; i < numberOfImages; i++) {
             try {
+                // Request metadata for a specific day offset.
                 std::wstring apiPath = L"/HPImageArchive.aspx?format=js&idx=" + std::to_wstring(i) + L"&n=1&mkt=en-US";
                 std::vector<BYTE> jsonData;
 
                 Logger::Log(Logger::Level::INFO, "Fetching metadata for image " + std::to_string(i + 1) + "...");
 
+                // Fetch JSON metadata.
                 if (!DownloadHTTP(L"www.bing.com", apiPath, jsonData)) {
                     Logger::Log(Logger::Level::ERROR, "Failed to fetch metadata for image " + std::to_string(i + 1));
                     errors++;
@@ -316,9 +331,11 @@ public:
                     continue;
                 }
 
+                // Build clean filename and destination path.
                 std::string filename = ExtractCleanFilenameFromUrl(imageUrl, i);
                 std::wstring fullPath = targetFolder + L"\\" + StringToWString(filename);
 
+                // Skip existing files.
                 if (fs::exists(fullPath)) {
                     Logger::Log(Logger::Level::INFO, "SKIPPED: " + filename + " (already exists)");
                     skipped++;
@@ -327,6 +344,7 @@ public:
 
                 Logger::Log(Logger::Level::INFO, "Downloading: " + filename);
 
+                // Download the image bytes.
                 std::wstring imagePath = StringToWString(imageUrl);
                 std::vector<BYTE> imageData;
                 if (DownloadHTTP(L"www.bing.com", imagePath, imageData)) {
@@ -350,6 +368,7 @@ public:
             }
         }
 
+        // Summary report.
         Logger::Log(Logger::Level::INFO, "=== Download Summary ===");
         Logger::Log(Logger::Level::INFO, "Downloaded: " + std::to_string(downloaded));
         Logger::Log(Logger::Level::INFO, "Skipped: " + std::to_string(skipped));
@@ -367,10 +386,12 @@ int main()
         
         BingImageDownloader downloader;
         
+        // Download the last 8 days of images (Bing supports up to 8 days back).
         bool success = downloader.DownloadImages(8);
         
         Logger::Log(Logger::Level::INFO, success ? "Process completed successfully" : "Process completed with errors");
         
+        // Pause briefly so the user can see final status, then exit.
         Sleep(5000);
         
         return success ? 0 : 1;
