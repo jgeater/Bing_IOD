@@ -1,0 +1,10 @@
+// Microsoft Visual C++ generated resource script.
+//
+#include "resource.h"
+#include <windows.h>
+
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+
+IDI_APPICON ICON "app.ico"
+
+

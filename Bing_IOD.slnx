@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="Bing_IOD/Bing_IOD.vcxproj" Id="fea2833a-f249-4bc1-bedd-34597267a050" />
+</Solution>
